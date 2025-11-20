@@ -7,7 +7,6 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import numpy as np
 import cv2
-import io
 
 app = Flask(__name__)
 
@@ -19,6 +18,11 @@ CORS(app, resources={
         "allow_headers": ["Content-Type"]
     }
 })
+
+# Disable Flask's default logger in production
+import logging
+log = logging.getLogger('werkzeug')
+log.setLevel(logging.ERROR)
 
 @app.route('/', methods=['GET'])
 def home():
@@ -197,11 +201,12 @@ def predict():
             'message': str(e)
         }), 500
 
-# Vercel serverless handler
-def handler(request):
-    with app.app_context():
-        return app.full_dispatch_request()
+# Export the Flask app for Vercel
+# Vercel's Python runtime expects a variable named 'app'
+# No custom handler needed - Vercel handles WSGI automatically
 
 # For local testing
 if __name__ == '__main__':
-    app.run(debug=True)
+    print("Starting Flask app for local testing...")
+    print("Visit: http://localhost:5000")
+    app.run(host='0.0.0.0', port=5000, debug=True)
