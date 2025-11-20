@@ -12,7 +12,7 @@ import { UserAnalyticsCards } from '@/components/UserAnalyticsCards';
 import { UserAnalysisHistory } from '@/components/UserAnalysisHistory';
 
 // Get API URL from environment variable (defaults to Vercel deployment)
-const API_URL = import.meta.env.VITE_API_URL || 'http://eye-glaze-srj2.vercel.app';
+const API_URL = import.meta.env.VITE_API_URL || 'https://eye-glaze-srj2.vercel.app';
 
 export function Dashboard() {
   const { user } = useAuth();
