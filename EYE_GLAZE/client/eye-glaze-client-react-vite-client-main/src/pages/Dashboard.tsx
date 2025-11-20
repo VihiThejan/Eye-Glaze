@@ -11,6 +11,9 @@ import { toast } from 'sonner';
 import { UserAnalyticsCards } from '@/components/UserAnalyticsCards';
 import { UserAnalysisHistory } from '@/components/UserAnalysisHistory';
 
+// Get API URL from environment variable (defaults to Vercel deployment)
+const API_URL = import.meta.env.VITE_API_URL || 'http://eye-glaze-srj2.vercel.app';
+
 export function Dashboard() {
   const { user } = useAuth();
   const [uploading, setUploading] = useState(false);
@@ -188,15 +191,15 @@ export function Dashboard() {
       const userAge = user?.age || 30; // Default to 30 if age not available
       formData.append('age', userAge.toString());
 
-      // Make API call to Flask backend for analysis (PORT 5000)
-      const response = await fetch('http://localhost:5000/predict', {
+      // Make API call to ML backend for analysis
+      const response = await fetch(`${API_URL}/predict`, {
         method: 'POST',
         body: formData,
       });
 
       if (!response.ok) {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Analysis failed. Please ensure Flask backend is running on port 5000.');
+        throw new Error(errorData.error || 'Analysis failed. Please check ML backend connection.');
       }
 
       const flaskResult = await response.json();
