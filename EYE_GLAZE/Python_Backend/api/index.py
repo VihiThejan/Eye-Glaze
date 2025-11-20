@@ -1,13 +1,20 @@
 """
-Vercel Serverless Function Entry Point
-Minimal Flask Backend for Iris Stress Detection
+Flask Backend for Iris Stress Detection (Vercel Serverless)
+Serves ML predictions via REST API
+Deployment: Vercel Serverless Functions
+Version: 2.0.0
+
+This version is optimized for Vercel deployment without ML model dependencies.
+Uses image analysis and age-based thresholds for stress detection.
 """
 
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import numpy as np
 import cv2
+import traceback
 
+# Initialize Flask app
 app = Flask(__name__)
 
 # Configure CORS - Allow all origins for Vercel deployment
@@ -26,6 +33,7 @@ log.setLevel(logging.ERROR)
 
 @app.route('/', methods=['GET'])
 def home():
+    """Health check endpoint"""
     return jsonify({
         'status': 'operational',
         'service': 'Iris Stress Detection API',
@@ -36,6 +44,7 @@ def home():
 
 @app.route('/api', methods=['GET'])
 def api_root():
+    """API root endpoint"""
     return jsonify({
         'status': 'operational',
         'service': 'Iris Stress Detection API',
@@ -46,9 +55,11 @@ def api_root():
 @app.route('/health', methods=['GET'])
 @app.route('/api/health', methods=['GET'])
 def health():
+    """Detailed health check"""
     return jsonify({
         'status': 'operational',
         'backend': 'Flask on Vercel',
+        'model_status': 'image_analysis',
         'endpoints': {
             'predict': '/predict (POST) - Image-based detection',
             'health': '/health (GET)'
@@ -58,29 +69,57 @@ def health():
 @app.route('/predict', methods=['POST', 'OPTIONS'])
 @app.route('/api/predict', methods=['POST', 'OPTIONS'])
 def predict():
+    """
+    Main prediction endpoint
+    
+    Expected input:
+        - image: File (multipart/form-data)
+        - age (optional): Integer (default: 30)
+    
+    Returns:
+        JSON with detection, measurements, and prediction results
+    """
+    # Handle preflight OPTIONS request
     if request.method == 'OPTIONS':
-        return '', 200
+        return '', 204
     
     try:
-        # Get uploaded image
+        # Check if image file is provided
         if 'image' not in request.files:
             return jsonify({
                 'success': False,
-                'error': 'No image provided'
+                'error': 'No image file provided. Please upload an eye image.'
             }), 400
         
         image_file = request.files['image']
-        age = int(request.form.get('age', 30))
         
-        # Read image
+        # Check if file is empty
+        if image_file.filename == '':
+            return jsonify({
+                'success': False,
+                'error': 'Empty filename. Please select a valid image.'
+            }), 400
+        
+        # Get age parameter (optional, default to 30)
+        age = request.form.get('age', '30')
+        try:
+            age = int(age)
+            if age < 1 or age > 120:
+                age = 30  # Default to 30 if invalid
+        except:
+            age = 30
+        
+        # Read image file
         image_bytes = image_file.read()
+        
+        # Convert to numpy array
         nparr = np.frombuffer(image_bytes, np.uint8)
         img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
         
         if img is None:
             return jsonify({
                 'success': False,
-                'error': 'Invalid image format'
+                'error': 'Invalid image format. Please upload a valid JPG/PNG image.'
             }), 400
         
         # Analyze image to detect tension rings
@@ -176,37 +215,43 @@ def predict():
             pupil_status = "Normal"
         
         # ============================================================
-        # INTELLIGENT STRESS DETERMINATION
+        # FINAL STRESS DETERMINATION (Intelligent Logic)
         # ============================================================
-        # Priority logic:
-        # 1. Tension rings (iris analysis) = definite stress indicator
-        # 2. Pupil dilation + age threshold = stress indicator
-        # 3. Normal range = no stress
+        # Logic from requirements and notebook:
+        # 1. If rings ≥ 1 → DEFINITE STRESS (tension detected - highest priority)
+        # 2. If rings=0 AND pupil within range → NORMAL (override any other indicators)
+        # 3. If rings=0 BUT pupil dilated → Potential stress (use caution, flag as "may indicate")
+        #
+        # Priority hierarchy:
+        # - Tension rings (iris patterns) = Most reliable stress indicator
+        # - Pupil dilation + age threshold = Secondary indicator
+        # - Normal range = No stress detected
         
         final_stress_detected = False
         stress_reason = ""
         stress_confidence_level = ""
         
         if ring_count >= 1:
-            # Tension rings detected - definite stress
+            # Tension rings detected - definite stress (highest priority)
             final_stress_detected = True
             stress_reason = f"{ring_count}_tension_rings"
             stress_confidence_level = "High"
             stress_probability = 0.95 if ring_count >= 2 else 0.85
-        elif ring_count == 0 and is_dilated:
-            # Pupil dilated but no rings - potential stress
-            final_stress_detected = True
-            stress_reason = "pupil_dilation"
-            stress_confidence_level = "Medium"
-            stress_probability = 0.70
         elif ring_count == 0 and not is_dilated:
-            # No indicators - normal
+            # No rings, no dilation - definitely normal (override any ML prediction)
             final_stress_detected = False
             stress_reason = "no_indicators"
             stress_confidence_level = "High"
             stress_probability = 0.15
+        elif ring_count == 0 and is_dilated:
+            # Only pupil dilation, no rings - may indicate stress but not definite
+            # Show as potential stress with medium confidence
+            final_stress_detected = True
+            stress_reason = "pupil_dilation_only"
+            stress_confidence_level = "Medium"
+            stress_probability = 0.60  # Medium probability to show caution
         else:
-            # Fallback
+            # Fallback (should rarely reach here)
             final_stress_detected = False
             stress_reason = "inconclusive"
             stress_confidence_level = "Low"
@@ -279,11 +324,38 @@ def predict():
         return jsonify(response), 200
         
     except Exception as e:
+        print(f"❌ Error: {str(e)}")
+        traceback.print_exc()
         return jsonify({
             'success': False,
-            'error': 'Processing failed',
-            'message': str(e)
+            'error': f'Server error: {str(e)}',
+            'trace': traceback.format_exc() if app.debug else None
         }), 500
+
+
+@app.errorhandler(404)
+def not_found(error):
+    """Handle 404 errors"""
+    return jsonify({
+        'success': False,
+        'error': 'Endpoint not found',
+        'available_endpoints': {
+            '/': 'GET - Health check',
+            '/health': 'GET - Detailed health status',
+            '/predict': 'POST - Stress prediction'
+        }
+    }), 404
+
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Handle 500 errors"""
+    return jsonify({
+        'success': False,
+        'error': 'Internal server error',
+        'message': str(error)
+    }), 500
+
 
 # Export the Flask app for Vercel
 # Vercel's Python runtime expects a variable named 'app'
@@ -291,6 +363,20 @@ def predict():
 
 # For local testing
 if __name__ == '__main__':
-    print("Starting Flask app for local testing...")
-    print("Visit: http://localhost:5000")
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    print("\n" + "="*80)
+    print("🚀 FLASK BACKEND - VERCEL VERSION")
+    print("="*80)
+    print("📦 Using image analysis (no ML model)")
+    print("🎯 Age-based stress detection enabled")
+    print("")
+    print("🚀 Starting Flask server on http://localhost:5000")
+    print("📡 Accepting requests from React frontend")
+    print("Press CTRL+C to stop")
+    print("="*80 + "\n")
+    
+    app.run(
+        host='0.0.0.0',
+        port=5000,
+        debug=True,
+        threaded=True
+    )
