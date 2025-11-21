@@ -3,14 +3,15 @@ Flask Backend for Iris Stress Detection
 Serves ML predictions via REST API
 Port: 5000
 """
+
 from flask import Flask, request, jsonify
 from flask_cors import CORS
-import cv2
-import numpy as np
 import traceback
 import sys
 import os
 from pathlib import Path
+import cv2
+import numpy as np
 from PIL import Image
 import io
 
@@ -27,7 +28,7 @@ app = Flask(__name__)
 # Configure CORS - Allow React frontend
 CORS(app, resources={
     r"/*": {
-        "origins": ["http://localhost:5173", "http://localhost:5174", "https://stress-detection-using-iris-and-pupil-parameters-1l69uaphb.vercel.app"],
+        "origins": ["http://localhost:5173", "http://localhost:5174"],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type"]
     }
@@ -60,6 +61,7 @@ def initialize_model():
         print(f"❌ Error initializing model: {e}")
         traceback.print_exc()
         return False
+
 
 @app.route('/', methods=['GET'])
 def home():
